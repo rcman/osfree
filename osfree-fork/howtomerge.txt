@@ -1,0 +1,21 @@
+# Switch to the branch you want to merge INTO (usually main)
+git checkout main
+
+# Pull the latest changes to make sure you're up to date
+git pull origin main
+
+# Merge your feature branch into main
+git merge feature/smp-multicore-support
+
+# Push the merged changes to GitHub
+git push origin main
+
+
+If there are conflicts, Git will tell you which files have conflicts. You'll need to:
+
+Open the conflicting files
+Manually resolve the conflicts (Git marks them with <<<<<<<, =======, >>>>>>>)
+Stage the resolved files with git add
+Complete the merge with git commit
+
+For contributing to someone else's project (like osfree), you'd use method #1 (pull request) since you likely don't have direct write access to their repository.

@@ -1,0 +1,4 @@
+Key Points:
+L4 Architecture Understanding:
+
+In L4, I/O address spaces and device memory are mapped to userspace drivers using map and grant operations, with hardware interrupts caught by the kernel and passed via IPC GitHub

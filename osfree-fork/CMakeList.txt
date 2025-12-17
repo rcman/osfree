@@ -1,0 +1,328 @@
+#
+# osFree CMake Build Configuration
+# Copyright (c) 2024 osFree Project
+#
+# Modern build system with multi-platform support
+#
+
+cmake_minimum_required(VERSION 3.16)
+project(osFree VERSION 0.1.0 LANGUAGES C ASM)
+
+# Build options
+option(OSFREE_SMP "Enable SMP (multi-core) support" ON)
+option(OSFREE_64BIT "Build 64-bit kernel" ON)
+option(OSFREE_DEBUG "Enable debug features" ON)
+option(OSFREE_UEFI "Enable UEFI boot support" ON)
+option(OSFREE_NVME "Enable NVMe storage support" ON)
+option(OSFREE_XHCI "Enable USB 3.x (xHCI) support" ON)
+option(OSFREE_AHCI "Enable SATA (AHCI) support" ON)
+option(OSFREE_TESTS "Build unit tests" OFF)
+
+# Target architecture
+set(OSFREE_ARCH "x86_64" CACHE STRING "Target architecture")
+set_property(CACHE OSFREE_ARCH PROPERTY STRINGS x86_64 i686 aarch64)
+
+# Compiler selection
+set(OSFREE_TOOLCHAIN "gcc" CACHE STRING "Compiler toolchain")
+set_property(CACHE OSFREE_TOOLCHAIN PROPERTY STRINGS gcc clang watcom)
+
+message(STATUS "Building osFree for ${OSFREE_ARCH}")
+message(STATUS "SMP support: ${OSFREE_SMP}")
+message(STATUS "64-bit: ${OSFREE_64BIT}")
+message(STATUS "Debug: ${OSFREE_DEBUG}")
+
+# Set up cross-compilation if needed
+if(OSFREE_ARCH STREQUAL "x86_64")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -m64")
+    set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -m64")
+    add_compile_definitions(__x86_64__=1)
+elseif(OSFREE_ARCH STREQUAL "i686")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -m32")
+    set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -m32")
+    add_compile_definitions(__i386__=1)
+elseif(OSFREE_ARCH STREQUAL "aarch64")
+    add_compile_definitions(__aarch64__=1)
+endif()
+
+# Common compiler flags
+set(COMMON_FLAGS "-Wall -Wextra -Werror=implicit-function-declaration")
+set(COMMON_FLAGS "${COMMON_FLAGS} -fno-stack-protector -fno-pic")
+set(COMMON_FLAGS "${COMMON_FLAGS} -nostdlib -nostdinc -ffreestanding")
+set(COMMON_FLAGS "${COMMON_FLAGS} -mno-red-zone")
+
+if(OSFREE_DEBUG)
+    set(COMMON_FLAGS "${COMMON_FLAGS} -g -O0")
+    add_compile_definitions(DEBUG=1)
+else()
+    set(COMMON_FLAGS "${COMMON_FLAGS} -O2")
+    add_compile_definitions(NDEBUG=1)
+endif()
+
+if(OSFREE_SMP)
+    add_compile_definitions(CONFIG_SMP=1)
+    add_compile_definitions(CONFIG_MAX_CPUS=256)
+endif()
+
+if(OSFREE_UEFI)
+    add_compile_definitions(CONFIG_UEFI=1)
+endif()
+
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${COMMON_FLAGS}")
+set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} ${COMMON_FLAGS}")
+
+# Include directories
+include_directories(
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/include/os3
+    ${CMAKE_SOURCE_DIR}/include/arch/${OSFREE_ARCH}
+)
+
+# Kernel sources
+set(KERNEL_SOURCES
+    # Core kernel
+    kernel/main.c
+    kernel/panic.c
+    kernel/printk.c
+    kernel/string.c
+    
+    # Memory management
+    kernel/mm/pmm.c
+    kernel/mm/vmm.c
+    kernel/mm/heap.c
+    kernel/mm/slab.c
+    
+    # Process/Thread management
+    kernel/proc/process.c
+    kernel/proc/thread.c
+    kernel/proc/elf.c
+    
+    # Scheduling
+    kernel/sched/scheduler.c
+    kernel/sched/waitqueue.c
+    
+    # Interrupt handling
+    kernel/irq/irq.c
+    kernel/irq/idt.c
+    
+    # Time management
+    kernel/time/time.c
+    kernel/time/timer.c
+    kernel/time/hpet.c
+    
+    # Synchronization
+    kernel/sync/mutex.c
+    kernel/sync/semaphore.c
+    kernel/sync/rwlock.c
+)
+
+# SMP-specific sources
+if(OSFREE_SMP)
+    list(APPEND KERNEL_SOURCES
+        kernel/smp/smp.c
+        kernel/smp/ipi.c
+        kernel/apic/apic.c
+        kernel/apic/ioapic.c
+    )
+endif()
+
+# Architecture-specific sources
+if(OSFREE_ARCH STREQUAL "x86_64" OR OSFREE_ARCH STREQUAL "i686")
+    list(APPEND KERNEL_SOURCES
+        kernel/arch/x86/cpu.c
+        kernel/arch/x86/gdt.c
+        kernel/arch/x86/idt.c
+        kernel/arch/x86/paging.c
+        kernel/arch/x86/pit.c
+        kernel/arch/x86/serial.c
+    )
+    
+    # Assembly sources
+    set(KERNEL_ASM_SOURCES
+        kernel/arch/x86/boot.S
+        kernel/arch/x86/entry.S
+        kernel/arch/x86/switch.S
+    )
+    
+    if(OSFREE_SMP)
+        list(APPEND KERNEL_ASM_SOURCES
+            kernel/smp/ap_trampoline.S
+        )
+    endif()
+endif()
+
+# ACPI sources
+list(APPEND KERNEL_SOURCES
+    kernel/acpi/acpi.c
+    kernel/acpi/madt.c
+    kernel/acpi/srat.c
+)
+
+# Device drivers
+set(DRIVER_SOURCES
+    # PCI
+    drivers/pci/pci.c
+    drivers/pci/pcie.c
+    drivers/pci/msi.c
+    
+    # Block devices
+    drivers/block/ramdisk.c
+)
+
+if(OSFREE_NVME)
+    list(APPEND DRIVER_SOURCES
+        drivers/block/nvme/nvme.c
+        drivers/block/nvme/nvme_queue.c
+    )
+    add_compile_definitions(CONFIG_NVME=1)
+endif()
+
+if(OSFREE_AHCI)
+    list(APPEND DRIVER_SOURCES
+        drivers/block/ahci/ahci.c
+    )
+    add_compile_definitions(CONFIG_AHCI=1)
+endif()
+
+if(OSFREE_XHCI)
+    list(APPEND DRIVER_SOURCES
+        drivers/usb/xhci/xhci.c
+        drivers/usb/xhci/xhci_ring.c
+    )
+    add_compile_definitions(CONFIG_XHCI=1)
+endif()
+
+# Video/console
+list(APPEND DRIVER_SOURCES
+    drivers/video/vga.c
+    drivers/video/gop.c
+    drivers/tty/console.c
+)
+
+# OS/2 Personality (os3)
+set(OS3_SOURCES
+    os3/api/doscalls.c
+    os3/api/kbdcalls.c
+    os3/api/moucalls.c
+    os3/api/viocalls.c
+    os3/api/quecalls.c
+    os3/api/nls.c
+    
+    os3/loader/lx_loader.c
+    os3/loader/ne_loader.c
+    
+    os3/ipc/pipes.c
+    os3/ipc/queues.c
+    os3/ipc/semaphores.c
+    os3/ipc/shared_mem.c
+    
+    os3/fs/hpfs.c
+    os3/fs/fat.c
+    os3/fs/ifs.c
+)
+
+# File systems
+set(FS_SOURCES
+    fs/vfs/vfs.c
+    fs/vfs/inode.c
+    fs/vfs/dentry.c
+    fs/vfs/file.c
+    fs/vfs/mount.c
+    
+    fs/devfs/devfs.c
+    fs/ramfs/ramfs.c
+)
+
+# Combine all sources
+set(ALL_SOURCES
+    ${KERNEL_SOURCES}
+    ${KERNEL_ASM_SOURCES}
+    ${DRIVER_SOURCES}
+    ${OS3_SOURCES}
+    ${FS_SOURCES}
+)
+
+# Create kernel executable
+add_executable(osfree.elf ${ALL_SOURCES})
+
+# Linker script
+set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/kernel/arch/${OSFREE_ARCH}/kernel.ld)
+set_target_properties(osfree.elf PROPERTIES
+    LINK_FLAGS "-T ${LINKER_SCRIPT} -nostdlib -static"
+)
+
+# Custom target to create bootable ISO
+add_custom_target(iso
+    COMMAND mkdir -p ${CMAKE_BINARY_DIR}/iso/boot/grub
+    COMMAND cp ${CMAKE_BINARY_DIR}/osfree.elf ${CMAKE_BINARY_DIR}/iso/boot/
+    COMMAND cp ${CMAKE_SOURCE_DIR}/boot/grub.cfg ${CMAKE_BINARY_DIR}/iso/boot/grub/
+    COMMAND grub-mkrescue -o ${CMAKE_BINARY_DIR}/osfree.iso ${CMAKE_BINARY_DIR}/iso
+    DEPENDS osfree.elf
+    COMMENT "Creating bootable ISO image"
+)
+
+# Custom target for UEFI image
+if(OSFREE_UEFI)
+    add_custom_target(uefi-image
+        COMMAND mkdir -p ${CMAKE_BINARY_DIR}/uefi/EFI/BOOT
+        COMMAND cp ${CMAKE_BINARY_DIR}/osfree.elf ${CMAKE_BINARY_DIR}/uefi/
+        COMMAND cp ${CMAKE_SOURCE_DIR}/boot/BOOTX64.EFI ${CMAKE_BINARY_DIR}/uefi/EFI/BOOT/
+        DEPENDS osfree.elf
+        COMMENT "Creating UEFI boot image"
+    )
+endif()
+
+# QEMU targets for testing
+add_custom_target(qemu
+    COMMAND qemu-system-x86_64 
+        -cdrom ${CMAKE_BINARY_DIR}/osfree.iso 
+        -m 512M 
+        -smp 4
+        -serial stdio
+        -enable-kvm
+    DEPENDS iso
+    COMMENT "Running osFree in QEMU with 4 CPUs"
+)
+
+add_custom_target(qemu-debug
+    COMMAND qemu-system-x86_64 
+        -cdrom ${CMAKE_BINARY_DIR}/osfree.iso 
+        -m 512M 
+        -smp 4
+        -serial stdio
+        -s -S
+    DEPENDS iso
+    COMMENT "Running osFree in QEMU with GDB server"
+)
+
+# Install target
+install(TARGETS osfree.elf DESTINATION boot)
+install(FILES ${CMAKE_SOURCE_DIR}/boot/grub.cfg DESTINATION boot/grub)
+
+# Unit tests
+if(OSFREE_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
+
+# Documentation
+find_package(Doxygen)
+if(DOXYGEN_FOUND)
+    add_custom_target(docs
+        COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_SOURCE_DIR}/Doxyfile
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Generating documentation"
+    )
+endif()
+
+# Print configuration summary
+message(STATUS "")
+message(STATUS "=== osFree Build Configuration ===")
+message(STATUS "Architecture: ${OSFREE_ARCH}")
+message(STATUS "SMP Support:  ${OSFREE_SMP}")
+message(STATUS "64-bit:       ${OSFREE_64BIT}")
+message(STATUS "UEFI:         ${OSFREE_UEFI}")
+message(STATUS "NVMe:         ${OSFREE_NVME}")
+message(STATUS "xHCI (USB3):  ${OSFREE_XHCI}")
+message(STATUS "AHCI (SATA):  ${OSFREE_AHCI}")
+message(STATUS "Debug:        ${OSFREE_DEBUG}")
+message(STATUS "==================================")
